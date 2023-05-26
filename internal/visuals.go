@@ -9,6 +9,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 	"github.com/high-creek-software/visuals/internal/plausible"
 	"github.com/high-creek-software/visuals/internal/ui"
+	"golang.org/x/exp/slog"
 )
 
 type Visuals struct {
@@ -18,6 +19,8 @@ type Visuals struct {
     siteSelect *widget.Select
     siteTokenRepo ui.SiteTokenRepo
     docTabs *container.DocTabs
+    
+    availablePairs []plausible.SiteTokenPair
 }
 
 func NewVisualsApp(a fyne.App, win fyne.Window) *Visuals {
@@ -39,9 +42,7 @@ func (v *Visuals) initLayout() {
         win.Show()
     })
     
-    v.siteSelect = widget.NewSelect([]string{""}, func(val string) {
-        
-    })
+    v.siteSelect = widget.NewSelect([]string{""}, v.siteSelected)
     v.docTabs = container.NewDocTabs()
     
     topBorder := container.NewBorder(nil, nil, nil, settingsAction, v.siteSelect)
@@ -51,7 +52,46 @@ func (v *Visuals) initLayout() {
 }
 
 func (v *Visuals) Start() {
+    v.app.Preferences().AddChangeListener(func() {
+        v.updateAvailableSites()
+    })
+    v.updateAvailableSites()
     v.mainWindow.ShowAndRun()
+}
+
+func (v *Visuals) updateAvailableSites() {
+    pairs, err := v.siteTokenRepo.List()
+    if err != nil {
+        slog.Error("error loading site token paris", "error", err)
+        return
+    }
+    
+    v.availablePairs = pairs
+    var ids []string
+    for _, p := range pairs {
+        ids = append(ids, p.SiteID)
+    }
+    
+    v.siteSelect.Options = ids
+    v.siteSelect.Refresh()
+}
+
+func (v *Visuals) siteSelected(selection string) {
+    var pair plausible.SiteTokenPair
+    for _, p := range v.availablePairs {
+        if p.SiteID == selection {
+            pair = p
+        }
+    }
+    
+    if pair.SiteID == "" {
+        slog.Error("error finding pair", "selection", selection)
+        return
+    }
+    
+    statsRepo := plausible.NewStatsRepoResty(pair)
+    tab := container.NewTabItem(selection, ui.NewSiteDisplay(v.mainWindow.Canvas(), statsRepo))
+    v.docTabs.Append(tab)
 }
 
 const (
